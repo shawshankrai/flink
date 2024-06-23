@@ -1,6 +1,12 @@
 package datastreams
 
-import org.apache.flink.streaming.api.scala.{DataStream, StreamExecutionEnvironment}
+import org.apache.flink.api.common.functions.{FlatMapFunction, MapFunction, ReduceFunction}
+import org.apache.flink.api.common.serialization.SimpleStringEncoder
+import org.apache.flink.core.fs.Path
+import org.apache.flink.streaming.api.functions.ProcessFunction
+import org.apache.flink.streaming.api.functions.sink.filesystem.StreamingFileSink
+import org.apache.flink.streaming.api.scala.{DataStream, KeyedStream, StreamExecutionEnvironment}
+import org.apache.flink.util.Collector
 
 object EssentialStreams {
 
@@ -56,9 +62,93 @@ object EssentialStreams {
     env.execute()
   }
 
+  private case class FizzBuzzResult(number: Long, output: String)
+  def fizBuzzExercise(): Unit = {
+    val env: StreamExecutionEnvironment = StreamExecutionEnvironment.getExecutionEnvironment
+    val numbers = env.fromSequence(1, 100)
+
+    import org.apache.flink.api.scala._
+
+    val fizzBuzz  = numbers.map[FizzBuzzResult] {(element: Long) => element match {
+      case n if n % 3 == 0 && n % 5 == 0 => FizzBuzzResult(element, "fizzbuzz")
+      case n if n % 3 == 0 => FizzBuzzResult(element, "fizz")
+      case n if n % 5 == 0 => FizzBuzzResult(element, "buzz")
+      case n => FizzBuzzResult(element, s"$element")
+    }}.filter(_.output == "fizzbuzz").map(_.number)
+
+    // Sink - generates part files
+    fizzBuzz.addSink(
+      StreamingFileSink
+        .forRowFormat(
+          new Path("output/fizzbuzz.sink"),
+          new SimpleStringEncoder[Long]("UTF-8")
+        ).build()
+    ).setParallelism(1)
+
+    env.execute()
+  }
+
+  private def demoExplicitTransformations(): Unit = {
+    val env = StreamExecutionEnvironment.getExecutionEnvironment
+    import org.apache.flink.api.scala._
+
+    val numbers = env.fromSequence(1, 3)
+
+    // explicit transformations
+    // Map
+    val doubleNumbers = numbers.map(new MapFunction[Long, Long] {
+      // declare fields, methods
+      override def map(value: Long): Long = value * 2
+    })
+
+
+    val expandedNumbersV1 = numbers.flatMap(n => (1L to n).toList)
+    // FLatMap
+    val expandedNumbersV2 = numbers.flatMap(new FlatMapFunction[Long, Long] { // new FlatMapFunction[Input, Output]
+      override def flatMap(value: Long, out: Collector[Long]): Unit =
+        (1L to value).foreach {i =>
+          out.collect(i) // imperative style - pushes the element downstream
+        }
+    })
+
+    // expandedNumbersV2.print()
+
+    // process - general function
+    val expandedNumbersV3 = numbers.process(new ProcessFunction [Long, Long]{
+      override def processElement(value: Long, ctx: ProcessFunction[Long, Long]#Context, out: Collector[Long]): Unit =
+        (1L to value).foreach { i =>
+          out.collect(i) // imperative style - pushes the element downstream
+        }
+    })
+
+    // expandedNumbersV3.print()
+
+    // reduce
+    // works on keyed streams KeyedStream[Value, Key] for every value attach a key
+    // true and false key both are dumping sums in the stream
+    /*
+    * 1> 3
+      1> 4
+      5> 2
+    * true = 2 -th 5 , false = 4 -th 1
+  * */
+    val keyedStreamV1: KeyedStream[Long, Boolean] = numbers.keyBy(n => n % 2 == 0)
+    val sumByKey = keyedStreamV1.reduce(_ + _)
+    // sumByKey.print()
+
+    // explicit
+    val sumByKeyExplicit = keyedStreamV1.reduce(new ReduceFunction[Long] {
+      override def reduce(value1: Long, value2: Long): Long = value1 + value2
+    })
+
+    sumByKeyExplicit.print()
+    env.execute()
+  }
   def main(args: Array[String]): Unit = {
     // applicationTemplate()
-    demoTransformations()
+    // demoTransformations()
+    // fizBuzzExercise()
+    demoExplicitTransformations()
   }
 
 }
