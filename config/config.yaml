@@ -1,0 +1,24 @@
+flink:
+  job:
+    name: "WordCountJob"
+    parallelism: 1
+    checkpoint_interval: 60000  # milliseconds
+    state_backend: "filesystem"
+    state_backend_path: "file:///tmp/flink-checkpoints"
+
+kafka:
+  bootstrap_servers: "localhost:9092"
+  group_id: "flink-consumer-group"
+  auto_offset_reset: "latest"
+
+source:
+  type: "datagen"
+  rows_per_second: 1
+  word_length: 5
+
+sink:
+  type: "print"
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s" 
